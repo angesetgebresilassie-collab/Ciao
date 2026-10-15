@@ -59,8 +59,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val Amber = Color(0xFFFF9F5A)
-private val Sakura = Color(0xFFFF6B9D)
+internal val Amber = Color(0xFFFF9F5A)
+internal val Sakura = Color(0xFFFF6B9D)
 
 private val rows = listOf(
     listOf("AC", "±", "%", "÷"),
