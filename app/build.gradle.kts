@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.ciao.glasscalc"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.ciao.glasscalc"
