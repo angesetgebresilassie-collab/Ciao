@@ -88,9 +88,6 @@ private val GoogleSans = FontFamily(
     Font(googleFont = flex, fontProvider = fontProvider, weight = FontWeight.Medium),
 )
 
-// Keys are no longer colored. Kept as a neutral white so Convert.kt's selected-chip highlight stays untinted.
-val Sakura = Color.White
-
 private fun glassAlpha(dark: Boolean) = if (dark) 0.16f else 0.6f
 
 // Same layout as the iOS Calculator.
@@ -221,15 +218,21 @@ fun CalcApp() {
                 }
 
                 Column(
-                    Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
+                    Modifier.fillMaxSize().systemBarsPadding().padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
-                        if (tab == 0) GlassCircleButton("↺", dark, backdrop, ink) { showHistory = true }
-                        else Spacer(Modifier.size(44.dp))
+                        if (tab == 0) {
+                            GlassCircleButton("↺", dark, backdrop, ink) { showHistory = true }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                GlassCircleButton("←", dark, backdrop, ink) { tab = 0 }
+                                Text("Unit Converter", color = ink, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            GlassCircleButton(if (tab == 0) "⇄" else "123", dark, backdrop, ink) { tab = 1 - tab }
+                            if (tab == 0) GlassCircleButton("⇄", dark, backdrop, ink) { tab = 1 }
                             Box {
                                 GlassCircleButton("⋮", dark, backdrop, ink) { menu = true }
                                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -268,7 +271,7 @@ fun CalcApp() {
                             Calc.evaluate(expr, deg)?.let { Calc.format(it) }?.takeIf { it != expr }?.let { "= $it" }
                         else null
                         Column(
-                            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp),
+                            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 4.dp),
                             verticalArrangement = Arrangement.Bottom,
                             horizontalAlignment = Alignment.End,
                         ) {
@@ -280,12 +283,15 @@ fun CalcApp() {
                                 maxLines = 1, softWrap = false, textAlign = TextAlign.End)
                         }
 
+                        // Generous, even gaps: normal keypad keeps fixed proportions (~67dp keys, 14dp gaps);
+                        // with scientific rows it flexes to fit the screen.
+                        val gap = if (sci) 10.dp else 14.dp
                         Column(
-                            Modifier.weight(if (sci) 3.9f else 3f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            if (sci) Modifier.weight(3.9f).fillMaxWidth() else Modifier.fillMaxWidth().aspectRatio(0.793f),
+                            verticalArrangement = Arrangement.spacedBy(gap),
                         ) {
                             (if (sci) sciRows + rows else rows).forEach { row ->
-                                Row(Modifier.weight(1f).fillMaxWidth()) {
+                                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                                     row.forEach { k ->
                                         val label = if (k == "DEG" && !deg) "RAD" else k
                                         GlassKey(label, dark, backdrop, ink, null, Modifier.weight(1f).fillMaxHeight()) {
@@ -326,7 +332,10 @@ fun CalcApp() {
     }
 }
 
-/** A round liquid-glass key, like the iOS Calculator. Pressing it swells the glass and bends the lens harder. */
+/**
+ * A liquid-glass key. Round by default (like the iOS Calculator); with fill = true it stretches to
+ * its cell and becomes a tall pill. Pressing it swells the glass and bends the lens harder.
+ */
 @Composable
 fun GlassKey(
     label: String,
@@ -335,6 +344,7 @@ fun GlassKey(
     ink: Color,
     tint: Color?,
     modifier: Modifier,
+    fill: Boolean = false,
     onClick: () -> Unit,
 ) {
     val src = remember { MutableInteractionSource() }
@@ -342,8 +352,7 @@ fun GlassKey(
     val bulge = animateFloatAsState(if (pressed) 1f else 0f, spring(0.5f, 380f), label = "bulge")
     Box(modifier, contentAlignment = Alignment.Center) {
         Box(
-            Modifier
-                .aspectRatio(1f)
+            (if (fill) Modifier.fillMaxSize() else Modifier.aspectRatio(1f))
                 .graphicsLayer {
                     val s = 1f + 0.1f * bulge.value
                     scaleX = s
@@ -378,7 +387,7 @@ fun GlassKey(
     }
 }
 
-/** Small round glass button for the top bar (history, converter, menu). */
+/** Small round glass button for the top bar (history, converter, back, menu). */
 @Composable
 fun GlassCircleButton(text: String, dark: Boolean, backdrop: LayerBackdrop, ink: Color, onClick: () -> Unit) {
     Box(
