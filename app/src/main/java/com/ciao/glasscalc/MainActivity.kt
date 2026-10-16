@@ -11,28 +11,11 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,8 +42,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-internal val Amber = Color(0xFFFF9F5A)
-internal val Sakura = Color(0xFFFF6B9D)
+val Amber = Color(0xFFFF9F5A)
+val Sakura = Color(0xFFFF6B9D)
 
 private val rows = listOf(
     listOf("AC", "±", "%", "÷"),
@@ -69,25 +52,46 @@ private val rows = listOf(
     listOf("1", "2", "3", "+"),
     listOf("⌫", "0", ".", "="),
 )
+private val sciRows = listOf(
+    listOf("sin", "cos", "tan", "xʸ"),
+    listOf("ln", "log", "√", "x!"),
+    listOf("(", ")", "π", "DEG"),
+)
 
-private fun onKey(k: String, e: String): String = when (k) {
-    "AC" -> ""
-    "⌫" -> if (e == "Error") "" else e.dropLast(1)
-    "±" -> Calc.negateLast(e)
-    "=" -> Calc.evaluate(e)?.let { Calc.format(it) } ?: if (e.isEmpty()) "" else "Error"
-    "+", "−", "×", "÷" ->
-        if (e.isEmpty() || e == "Error") e else e.trimEnd('+', '−', '×', '÷') + k
-    "%" -> if (e.isNotEmpty() && (e.last().isDigit() || e.last() == '%')) "$e%" else e
-    "." -> {
-        val n = e.takeLastWhile { it.isDigit() || it == '.' }
-        if ('.' in n) e else if (n.isEmpty()) "${e}0." else "$e."
+private fun isValueEnd(c: Char) = c.isDigit() || c in ")πe!%."
+
+private fun onKey(k: String, e0: String, deg: Boolean): String {
+    val e = if (e0 == "Error") "" else e0
+    return when (k) {
+        "AC" -> ""
+        "⌫" -> e.dropLast(1)
+        "±" -> Calc.negateLast(e)
+        "=" -> if (e.isEmpty()) "" else Calc.evaluate(e, deg)?.let { Calc.format(it) } ?: "Error"
+        "sin", "cos", "tan", "ln", "log", "√" -> "$e$k("
+        "xʸ" -> if (e.isNotEmpty() && isValueEnd(e.last())) "$e^" else e
+        "x!" -> if (e.isNotEmpty() && isValueEnd(e.last())) "$e!" else e
+        "π", "e", "(" -> e + k
+        ")" -> if (e.isNotEmpty() && isValueEnd(e.last()) &&
+            e.count { it == '(' } > e.count { it == ')' }) "$e)" else e
+        "+", "×", "÷" ->
+            if (e.isEmpty() || e.last() == '(') e else e.trimEnd('+', '−', '×', '÷', '^') + k
+        "−" ->
+            if (e.isEmpty() || e.last() == '(') e + k else e.trimEnd('+', '−', '×', '÷', '^') + k
+        "%" -> if (e.isNotEmpty() && (e.last().isDigit() || e.last() in ")%π")) "$e%" else e
+        "." -> {
+            val n = e.takeLastWhile { it.isDigit() || it == '.' }
+            if ('.' in n) e else if (n.isEmpty()) "${e}0." else "$e."
+        }
+        else -> e + k
     }
-    else -> (if (e == "Error") "" else e) + k
 }
 
 @Composable
 fun CalcApp() {
     var dark by remember { mutableStateOf(true) }
+    var tab by remember { mutableIntStateOf(0) }
+    var sci by remember { mutableStateOf(false) }
+    var deg by remember { mutableStateOf(true) }
     var expr by remember { mutableStateOf("") }
     val backdrop = rememberLayerBackdrop()
     val haptic = LocalHapticFeedback.current
@@ -101,53 +105,70 @@ fun CalcApp() {
             Modifier.fillMaxSize().systemBarsPadding().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlassChip("Calc", tab == 0, backdrop, ink) { tab = 0 }
+                    GlassChip("Convert", tab == 1, backdrop, ink) { tab = 1 }
+                    if (tab == 0) GlassChip("Sci", sci, backdrop, ink) { sci = !sci }
+                }
                 ThemeToggle(dark, backdrop, ink) { dark = !dark }
             }
 
-            val preview = if (expr.drop(1).any { it in "+−×÷%" })
-                Calc.evaluate(expr)?.let { "= " + Calc.format(it) } ?: "" else ""
-            Box(
-                Modifier
-                    .weight(0.9f)
-                    .fillMaxWidth()
-                    .drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { RoundedCornerShape(36.dp) },
-                        effects = {
-                            vibrancy()
-                            blur(10f.dp.toPx())
-                            lens(12f.dp.toPx(), 24f.dp.toPx())
-                        },
-                        onDrawSurface = { drawRect(Color.White.copy(alpha = if (dark) 0.08f else 0.22f)) },
-                    )
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                contentAlignment = Alignment.BottomEnd,
-            ) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(preview, color = ink.copy(alpha = 0.65f), fontSize = 22.sp, maxLines = 1)
-                    val shown = expr.ifEmpty { "0" }
-                    val fs = when { shown.length > 12 -> 32.sp; shown.length > 8 -> 44.sp; else -> 62.sp }
-                    Text(shown, color = ink, fontSize = fs, fontWeight = FontWeight.Light,
-                        maxLines = 1, textAlign = TextAlign.End)
+            if (tab == 1) {
+                ConvertScreen(dark, backdrop, ink, Modifier.weight(1f).fillMaxWidth())
+            } else {
+                val res = Calc.evaluate(expr, deg)?.let { Calc.format(it) }
+                val preview = if (res != null && res != expr) "= $res" else ""
+                Box(
+                    Modifier
+                        .weight(0.9f)
+                        .fillMaxWidth()
+                        .drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { RoundedCornerShape(36.dp) },
+                            effects = {
+                                vibrancy()
+                                blur(10f.dp.toPx())
+                                lens(12f.dp.toPx(), 24f.dp.toPx())
+                            },
+                            onDrawSurface = { drawRect(Color.White.copy(alpha = if (dark) 0.08f else 0.22f)) },
+                        )
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    contentAlignment = Alignment.BottomEnd,
+                ) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(preview, color = ink.copy(alpha = 0.65f), fontSize = 22.sp, maxLines = 1)
+                        val shown = expr.ifEmpty { "0" }
+                        val fs = when { shown.length > 16 -> 26.sp; shown.length > 12 -> 32.sp; shown.length > 8 -> 44.sp; else -> 62.sp }
+                        Text(shown, color = ink, fontSize = fs, fontWeight = FontWeight.Light,
+                            maxLines = 1, textAlign = TextAlign.End)
+                    }
                 }
-            }
 
-            Column(Modifier.weight(2.4f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                rows.forEach { row ->
-                    Row(
-                        Modifier.weight(1f).fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        row.forEach { k ->
-                            val tint = when (k) {
-                                "÷", "×", "−", "+" -> Amber
-                                "=" -> Sakura
-                                else -> null
-                            }
-                            GlassKey(k, dark, backdrop, ink, tint, Modifier.weight(1f).fillMaxHeight()) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                expr = onKey(k, expr)
+                Column(
+                    Modifier.weight(if (sci) 3.3f else 2.4f),
+                    verticalArrangement = Arrangement.spacedBy(if (sci) 8.dp else 12.dp),
+                ) {
+                    (if (sci) sciRows + rows else rows).forEach { row ->
+                        Row(
+                            Modifier.weight(1f).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(if (sci) 8.dp else 12.dp),
+                        ) {
+                            row.forEach { k ->
+                                val tint = when (k) {
+                                    "÷", "×", "−", "+" -> Amber
+                                    "=" -> Sakura
+                                    else -> null
+                                }
+                                val label = if (k == "DEG" && !deg) "RAD" else k
+                                GlassKey(label, dark, backdrop, ink, tint, Modifier.weight(1f).fillMaxHeight()) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    if (k == "DEG") deg = !deg else expr = onKey(k, expr, deg)
+                                }
                             }
                         }
                     }
@@ -198,7 +219,8 @@ fun GlassKey(
             .clickable(interactionSource = src, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = ink, fontSize = 30.sp, fontWeight = FontWeight.Light)
+        val fs = when { label.length > 2 -> 20.sp; label.length > 1 -> 24.sp; else -> 30.sp }
+        Text(label, color = ink, fontSize = fs, fontWeight = FontWeight.Light)
     }
 }
 
