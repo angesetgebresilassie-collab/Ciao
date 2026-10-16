@@ -3,6 +3,7 @@ package com.ciao.glasscalc
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,7 +13,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
@@ -20,13 +20,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
@@ -40,6 +46,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -64,15 +71,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-val Amber = Color(0xFFFF9F5A)
-val Sakura = Color(0xFFFF6B9D)
+/**
+ * Google Sans is proprietary, so it can't be bundled. This uses the system Google Sans where the
+ * device has it (Pixel and other recent Android builds) and the default font elsewhere.
+ */
+private val GoogleSans = FontFamily(Typeface.create("google-sans", Typeface.NORMAL))
 
+// Keys are no longer colored. Kept as a neutral white so Convert.kt's selected-chip highlight stays untinted.
+val Sakura = Color.White
+
+private fun glassAlpha(dark: Boolean) = if (dark) 0.16f else 0.6f
+
+// Same layout as the iOS Calculator.
 private val rows = listOf(
-    listOf("AC", "±", "%", "÷"),
+    listOf("⌫", "AC", "%", "÷"),
     listOf("7", "8", "9", "×"),
     listOf("4", "5", "6", "−"),
     listOf("1", "2", "3", "+"),
-    listOf("⌫", "0", ".", "="),
+    listOf("±", "0", ".", "="),
 )
 private val sciRows = listOf(
     listOf("sin", "cos", "tan", "xʸ"),
@@ -88,7 +104,6 @@ private fun onKey(k: String, e0: String, deg: Boolean): String {
         "AC" -> ""
         "⌫" -> e.dropLast(1)
         "±" -> Calc.negateLast(e)
-        "=" -> if (e.isEmpty()) "" else Calc.evaluate(e, deg)?.let { Calc.format(it) } ?: "Error"
         "sin", "cos", "tan", "ln", "log", "√" -> "$e$k("
         "xʸ" -> if (e.isNotEmpty() && isValueEnd(e.last())) "$e^" else e
         "x!" -> if (e.isNotEmpty() && isValueEnd(e.last())) "$e!" else e
@@ -104,6 +119,7 @@ private fun onKey(k: String, e0: String, deg: Boolean): String {
             val n = e.takeLastWhile { it.isDigit() || it == '.' }
             if ('.' in n) e else if (n.isEmpty()) "${e}0." else "$e."
         }
+        "=" -> e
         else -> e + k
     }
 }
@@ -118,6 +134,7 @@ private fun decode(ctx: Context, uri: Uri): Bitmap? = runCatching {
     ctx.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it, null, opts) }
 }.getOrNull()
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalcApp() {
     var dark by remember { mutableStateOf(true) }
@@ -125,15 +142,20 @@ fun CalcApp() {
     var sci by remember { mutableStateOf(false) }
     var deg by remember { mutableStateOf(true) }
     var expr by remember { mutableStateOf("") }
+    var lastExpr by remember { mutableStateOf<String?>(null) }
+    val history = remember { mutableStateListOf<Pair<String, String>>() }
+    var showHistory by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var custom by remember { mutableStateOf<Bitmap?>(null) }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val backdrop = rememberLayerBackdrop()
     val haptic = LocalHapticFeedback.current
-    val ink = if (dark) Color.White else Color(0xFF1B2140)
+    val ink = if (dark) Color.White else Color(0xFF111111)
 
+    val systemDark = isSystemInDarkTheme()
     LaunchedEffect(Unit) {
+        dark = systemDark
         custom = withContext(Dispatchers.IO) {
             File(ctx.filesDir, "bg.jpg").takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
         }
@@ -149,116 +171,142 @@ fun CalcApp() {
         }
     }
 
-    MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-        Box(Modifier.fillMaxSize()) {
-            // Whatever is drawn here is what every glass piece samples and refracts.
-            Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-                val bmp = custom
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (dark) 0.3f else 0.04f)))
-                } else {
-                    Crossfade(dark, Modifier.fillMaxSize(), label = "scene") { Scene(it) }
-                }
+    fun press(k: String) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (k == "DEG") { deg = !deg; return }
+        if (k == "=") {
+            val r = if (expr.isEmpty()) null else Calc.evaluate(expr, deg)?.let { Calc.format(it) }
+            if (r != null) {
+                history.add(0, expr to r)
+                lastExpr = expr
+                expr = r
+            } else if (expr.isNotEmpty()) {
+                expr = "Error"
+                lastExpr = null
             }
+            return
+        }
+        lastExpr = null
+        expr = onKey(k, expr, deg)
+    }
 
-            Column(
-                Modifier.fillMaxSize().systemBarsPadding().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        GlassChip("Calc", tab == 0, backdrop, ink) { tab = 0 }
-                        GlassChip("Convert", tab == 1, backdrop, ink) { tab = 1 }
+    MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+        CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = GoogleSans)) {
+            Box(Modifier.fillMaxSize()) {
+                // Whatever is drawn here is what every glass piece samples and refracts.
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                    val bmp = custom
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (dark) 0.3f else 0.04f)))
+                    } else {
+                        Crossfade(dark, Modifier.fillMaxSize(), label = "bg") { Scene(it) }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ThemeToggle(dark, backdrop, ink) { dark = !dark }
-                        Box {
-                            GlassChip("⋮", false, backdrop, ink) { menu = true }
-                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Choose background…") },
-                                    onClick = {
-                                        menu = false
-                                        picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    },
-                                )
-                                if (custom != null) DropdownMenuItem(
-                                    text = { Text("Use built-in anime scene") },
-                                    onClick = {
-                                        menu = false
-                                        File(ctx.filesDir, "bg.jpg").delete()
-                                        custom = null
-                                    },
-                                )
-                                if (tab == 0) DropdownMenuItem(
-                                    text = { Text(if (sci) "Scientific keys  ✓" else "Scientific keys") },
-                                    onClick = { menu = false; sci = !sci },
-                                )
+                }
+
+                Column(
+                    Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        if (tab == 0) GlassCircleButton("↺", dark, backdrop, ink) { showHistory = true }
+                        else Spacer(Modifier.size(44.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            GlassCircleButton(if (tab == 0) "⇄" else "123", dark, backdrop, ink) { tab = 1 - tab }
+                            Box {
+                                GlassCircleButton("⋮", dark, backdrop, ink) { menu = true }
+                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text(if (dark) "Light theme" else "Dark theme", fontFamily = GoogleSans) },
+                                        onClick = { menu = false; dark = !dark },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Choose background…", fontFamily = GoogleSans) },
+                                        onClick = {
+                                            menu = false
+                                            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                        },
+                                    )
+                                    if (custom != null) DropdownMenuItem(
+                                        text = { Text("Remove custom background", fontFamily = GoogleSans) },
+                                        onClick = {
+                                            menu = false
+                                            File(ctx.filesDir, "bg.jpg").delete()
+                                            custom = null
+                                        },
+                                    )
+                                    if (tab == 0) DropdownMenuItem(
+                                        text = { Text(if (sci) "Scientific keys  ✓" else "Scientific keys", fontFamily = GoogleSans) },
+                                        onClick = { menu = false; sci = !sci },
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                if (tab == 1) {
-                    ConvertScreen(dark, backdrop, ink, Modifier.weight(1f).fillMaxWidth())
-                } else {
-                    val res = Calc.evaluate(expr, deg)?.let { Calc.format(it) }
-                    val preview = if (res != null && res != expr) "= $res" else ""
-                    Box(
-                        Modifier
-                            .weight(0.9f)
-                            .fillMaxWidth()
-                            .drawBackdrop(
-                                backdrop = backdrop,
-                                shape = { RoundedCornerShape(36.dp) },
-                                effects = {
-                                    vibrancy()
-                                    blur(10f.dp.toPx())
-                                    lens(12f.dp.toPx(), 24f.dp.toPx())
-                                },
-                                onDrawSurface = { drawRect(Color.White.copy(alpha = if (dark) 0.08f else 0.22f)) },
-                            )
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        contentAlignment = Alignment.BottomEnd,
-                    ) {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(preview, color = ink.copy(alpha = 0.65f), fontSize = 22.sp, maxLines = 1)
+                    if (tab == 1) {
+                        ConvertScreen(dark, backdrop, ink, Modifier.weight(1f).fillMaxWidth())
+                    } else {
+                        val live = if (lastExpr == null)
+                            Calc.evaluate(expr, deg)?.let { Calc.format(it) }?.takeIf { it != expr }?.let { "= $it" }
+                        else null
+                        Column(
+                            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp),
+                            verticalArrangement = Arrangement.Bottom,
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            Text(lastExpr ?: live ?: "", color = ink.copy(alpha = 0.55f), fontSize = 26.sp,
+                                maxLines = 1, softWrap = false)
                             val shown = expr.ifEmpty { "0" }
-                            val fs = when { shown.length > 16 -> 26.sp; shown.length > 12 -> 32.sp; shown.length > 8 -> 44.sp; else -> 62.sp }
-                            Text(shown, color = ink, fontSize = fs, fontWeight = FontWeight.Light,
-                                maxLines = 1, textAlign = TextAlign.End)
+                            val fs = when { shown.length > 12 -> 40.sp; shown.length > 9 -> 56.sp; else -> 80.sp }
+                            Text(shown, color = ink, fontSize = fs, fontWeight = FontWeight.Normal,
+                                maxLines = 1, softWrap = false, textAlign = TextAlign.End)
                         }
-                    }
 
-                    Column(
-                        Modifier.weight(if (sci) 3.6f else 2.8f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        (if (sci) sciRows + rows else rows).forEach { row ->
-                            Row(Modifier.weight(1f).fillMaxWidth()) {
-                                row.forEach { k ->
-                                    val tint = when (k) {
-                                        "÷", "×", "−", "+" -> Amber
-                                        "=" -> Sakura
-                                        else -> null
-                                    }
-                                    val label = if (k == "DEG" && !deg) "RAD" else k
-                                    GlassKey(label, dark, backdrop, ink, tint, Modifier.weight(1f).fillMaxHeight()) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        if (k == "DEG") deg = !deg else expr = onKey(k, expr, deg)
+                        Column(
+                            Modifier.weight(if (sci) 3.9f else 3f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            (if (sci) sciRows + rows else rows).forEach { row ->
+                                Row(Modifier.weight(1f).fillMaxWidth()) {
+                                    row.forEach { k ->
+                                        val label = if (k == "DEG" && !deg) "RAD" else k
+                                        GlassKey(label, dark, backdrop, ink, null, Modifier.weight(1f).fillMaxHeight()) {
+                                            press(k)
+                                        }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                if (showHistory) ModalBottomSheet(onDismissRequest = { showHistory = false }) {
+                    Column(
+                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                            .padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                        horizontalAlignment = Alignment.End,
+                    ) {
+                        if (history.isEmpty()) Text("No history yet", fontFamily = GoogleSans)
+                        history.forEach { (e, r) ->
+                            Column(
+                                Modifier.fillMaxWidth().clickable {
+                                    expr = r; lastExpr = null; showHistory = false
+                                }.padding(vertical = 10.dp),
+                                horizontalAlignment = Alignment.End,
+                            ) {
+                                Text(e, fontSize = 16.sp, fontFamily = GoogleSans)
+                                Text(r, fontSize = 30.sp, fontFamily = GoogleSans)
+                            }
+                        }
+                        if (history.isNotEmpty()) TextButton(onClick = { history.clear() }) {
+                            Text("Clear history", fontFamily = GoogleSans)
                         }
                     }
                 }
@@ -267,10 +315,7 @@ fun CalcApp() {
     }
 }
 
-/**
- * A round key, like the iPhone PIN pad. Pressing it swells the glass and strengthens the lens,
- * so the background visibly bends around your finger.
- */
+/** A round liquid-glass key, like the iOS Calculator. Pressing it swells the glass and bends the lens harder. */
 @Composable
 fun GlassKey(
     label: String,
@@ -309,7 +354,7 @@ fun GlassKey(
                             drawRect(tint, blendMode = BlendMode.Hue)
                             drawRect(tint.copy(alpha = 0.55f))
                         } else {
-                            drawRect(Color.White.copy(alpha = if (dark) 0.08f else 0.24f))
+                            drawRect(Color.White.copy(alpha = glassAlpha(dark)))
                         }
                     },
                 )
@@ -317,52 +362,32 @@ fun GlassKey(
             contentAlignment = Alignment.Center,
         ) {
             val fs = when { label.length > 2 -> 18.sp; label.length > 1 -> 22.sp; else -> 32.sp }
-            Text(label, color = ink, fontSize = fs, fontWeight = FontWeight.Light)
+            Text(label, color = ink, fontSize = fs, fontWeight = FontWeight.Normal)
         }
     }
 }
 
-/** A glass pill whose thumb is a second lens sliding over the first, like a drop of liquid. */
+/** Small round glass button for the top bar (history, converter, menu). */
 @Composable
-fun ThemeToggle(dark: Boolean, backdrop: LayerBackdrop, ink: Color, onToggle: () -> Unit) {
-    val x by animateDpAsState(if (dark) 48.dp else 0.dp, spring(0.55f, 300f), label = "thumb")
+fun GlassCircleButton(text: String, dark: Boolean, backdrop: LayerBackdrop, ink: Color, onClick: () -> Unit) {
     Box(
         Modifier
-            .width(96.dp)
-            .height(48.dp)
+            .size(44.dp)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { CircleShape },
                 effects = {
-                    blur(6f.dp.toPx())
-                    lens(8f.dp.toPx(), 16f.dp.toPx())
+                    vibrancy()
+                    blur(2f.dp.toPx())
+                    lens(10f.dp.toPx(), 20f.dp.toPx())
                 },
-                onDrawSurface = { drawRect(Color.White.copy(alpha = 0.1f)) },
+                onDrawSurface = { drawRect(Color.White.copy(alpha = glassAlpha(dark))) },
             )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onToggle,
+                onClick = onClick,
             ),
-    ) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text("☀", color = ink, fontSize = 20.sp)
-            Text("☾", color = ink, fontSize = 20.sp)
-        }
-        Box(
-            Modifier
-                .offset(x = x)
-                .size(48.dp)
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { CircleShape },
-                    effects = {
-                        vibrancy()
-                        lens(14f.dp.toPx(), 28f.dp.toPx())
-                    },
-                    onDrawSurface = { drawRect(Color.White.copy(alpha = 0.22f)) },
-                ),
-        )
-    }
+        contentAlignment = Alignment.Center,
+    ) { Text(text, color = ink, fontSize = if (text.length > 1) 15.sp else 22.sp) }
 }
