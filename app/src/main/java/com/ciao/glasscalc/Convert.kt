@@ -104,11 +104,12 @@ private fun UnitRow(units: List<Un>, sel: Int, backdrop: LayerBackdrop, ink: Col
     }
 }
 
+// iPhone PIN-style pad: 3 columns of round keys.
 private val padRows = listOf(
-    listOf("7", "8", "9", "⌫"),
-    listOf("4", "5", "6", "AC"),
-    listOf("1", "2", "3", "±"),
-    listOf("0", ".", "⇅"),
+    listOf("1", "2", "3"),
+    listOf("4", "5", "6"),
+    listOf("7", "8", "9"),
+    listOf(".", "0", "⌫"),
 )
 
 @Composable
@@ -176,12 +177,16 @@ fun ConvertScreen(dark: Boolean, backdrop: LayerBackdrop, ink: Color, modifier: 
                 )
             }
         }
-        Column(Modifier.weight(2.2f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GlassChip("AC", false, backdrop, ink) { press("AC") }
+            GlassChip("±", false, backdrop, ink) { press("±") }
+            GlassChip("⇅ Swap", false, backdrop, ink) { press("⇅") }
+        }
+        Column(Modifier.weight(2.6f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             padRows.forEach { row ->
-                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
                     row.forEach { k ->
-                        GlassKey(k, dark, backdrop, ink, if (k == "⇅") Amber else null,
-                            Modifier.weight(if (k == "0") 2f else 1f).fillMaxHeight()) {
+                        GlassKey(k, dark, backdrop, ink, null, Modifier.weight(1f).fillMaxHeight()) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             press(k)
                         }
