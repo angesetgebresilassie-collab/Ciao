@@ -3,7 +3,6 @@ package com.ciao.glasscalc
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -48,6 +47,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,10 +73,20 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Google Sans is proprietary, so it can't be bundled. This uses the system Google Sans where the
- * device has it (Pixel and other recent Android builds) and the default font elsewhere.
+ * Google Sans Flex, the open-source (OFL) sibling of Google Sans, downloaded through Google Fonts.
+ * It needs Google Play services; without it the default font is used.
  */
-private val GoogleSans = FontFamily(Typeface.create("google-sans", Typeface.NORMAL))
+private val fontProvider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = R.array.com_google_android_gms_fonts_certs,
+)
+private val flex = GoogleFont("Google Sans Flex")
+private val GoogleSans = FontFamily(
+    Font(googleFont = flex, fontProvider = fontProvider, weight = FontWeight.Light),
+    Font(googleFont = flex, fontProvider = fontProvider, weight = FontWeight.Normal),
+    Font(googleFont = flex, fontProvider = fontProvider, weight = FontWeight.Medium),
+)
 
 // Keys are no longer colored. Kept as a neutral white so Convert.kt's selected-chip highlight stays untinted.
 val Sakura = Color.White
@@ -265,7 +276,7 @@ fun CalcApp() {
                                 maxLines = 1, softWrap = false)
                             val shown = expr.ifEmpty { "0" }
                             val fs = when { shown.length > 12 -> 40.sp; shown.length > 9 -> 56.sp; else -> 80.sp }
-                            Text(shown, color = ink, fontSize = fs, fontWeight = FontWeight.Normal,
+                            Text(shown, color = ink, fontSize = fs, fontWeight = FontWeight.Light,
                                 maxLines = 1, softWrap = false, textAlign = TextAlign.End)
                         }
 
